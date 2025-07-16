@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>5th Grade Science Test - Face Detection Lock</title>
+<style>
+  body, html {
+    margin: 0; padding: 0; height: 100%;
+    font-family: Arial, sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+    background: #f0f0f0;
+  }
+  #lock-screen {
+    display: none;
+    position: fixed;
+    top:0; left:0; right:0; bottom:0;
+    background: #222;
+    color: #fff;
+    font-size: 1.5rem;
+    text-align: center;
+    padding: 20px;
+    z-index: 9999;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+  }
+  #lock-screen.show {
+    display: flex;
+  }
+  #lock-screen h2 {
+    margin-bottom: 10px;
+  }
+  #content {
+    padding: 20px;
+    max-width: 600px;
+    margin: 40px auto;
+    background: white;
+    border-radius: 10px;
+    box-shadow: 0 0 15px rgba(0,0,0,0.1);
+  }
+  video {
+    display: block;
+    margin: 0 auto 20px auto;
+    border-radius: 8px;
+    max-width: 300px;
+    box-shadow: 0 0 10px rgba(0,0,0,0.3);
+  }
+  h1 {
+    text-align: center;
+    margin-bottom: 30px;
+  }
+  #rules, #quiz-container {
+    font-size: 1.1rem;
+  }
+  #rules p {
+    margin-bottom: 15px;
+  }
+  #start-btn, .answer-btn, #retry-btn {
+    display: block;
+    width: 100%;
+    padding: 12px 20px;
+    margin: 15px 0;
+    font-size: 1.1rem;
+    cursor: pointer;
+    border: 2px solid #007BFF;
+    border-radius: 8px;
+    background: white;
+    color: #007BFF;
+    transition: background 0.3s, color 0.3s;
+    text-align: center;
+  }
+  #start-btn:hover, .answer-btn:hover, #retry-btn:hover {
+    background: #007BFF;
+    color: white;
+  }
+  #question {
+    font-size: 1.25rem;
+    margin-bottom: 20px;
+  }
+  #result {
+    font-size: 1.4rem;
+    text-align: center;
+    margin-top: 30px;
+    color: green;
+  }
+  #warning-msg {
+    color: red;
+    font-weight: bold;
+    margin-top: 10px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<div id="lock-screen">
+  <h2>Access Locked</h2>
+  <p>Your face is not visible.<br>Please ensure your face is in front of the camera.</p>
+</div>
+
+<div id="content">
+  <h1>5th Grade Science Test</h1>
+  <video autoplay playsinline muted width="300"></video>
+
+  <!-- Rules page -->
+  <div id="rules">
+    <h2>Test Rules</h2>
+    <p>1. You must keep your face visible to the camera at all times.</p>
+    <p>2. Do not leave or switch away from this page during the test.</p>
+    <p>3. Right-click, copying, or trying to open developer tools is disabled.</p>
+    <p>4. You will get 3 warnings if you leave the page. On the 3rd warning, your test will end with 0 score.</p>
+    <button id="start-btn">I Understand and Start Test</button>
+  </div>
+
+  <!-- Quiz container hidden initially -->
+  <div id="quiz-container" style="display:none;">
+    <div id="question"></div>
+    <div id="answers"></div>
+    <div id="result"></div>
+    <button id="retry-btn" style="display:none;">Retake Test</button>
+    <div id="warning-msg"></div>
+  </div>
+</div>
+
+<script>
+  const video = document.querySelector('video');
+  const lockScreen = document.getElementById('lock-screen');
+  const content = document.getElementById('content');
+  const rulesDiv = document.getElementById('rules');
+  const quizDiv = document.getElementById('quiz-container');
+  const startBtn = document.getElementById('start-btn');
+  const questionEl = document.getElementById('question');
+  const answersEl = document.getElementById('answers');
+  const resultEl = document.getElementById('result');
+  const retryBtn = document.getElementById('retry-btn');
+  const warningMsg = document.getElementById('warning-msg');
+
+  let warningCount = 0;
+  let locked = false;
+  let currentQuestionIndex = 0;
+  let score = 0;
+  let testActive = false;
+  let leftPageWarnings = 0;
+
+  // Questions
+  const quizQuestions = [
+    { question: "What planet is known as the Red Planet?", answers: ["Earth", "Mars", "Jupiter", "Venus"], correctIndex: 1 },
+    { question: "What gas do plants absorb from the air?", answers: ["Oxygen", "Nitrogen", "Carbon Dioxide", "Helium"], correctIndex: 2 },
+    { question: "What force keeps us on the ground?", answers: ["Magnetism", "Gravity", "Friction", "Electricity"], correctIndex: 1 },
+    { question: "Which organ pumps blood through the body?", answers: ["Liver", "Brain", "Heart", "Lungs"], correctIndex: 2 },
+    { question: "What is the boiling point of water at sea level?", answers: ["100°C", "50°C", "0°C", "212°F"], correctIndex: 0 }
+  ];
+
+  // Lock/unlock UI functions
+  function lockPage() {
+    locked = true;
+    content.style.display = 'none';
+    lockScreen.classList.add('show');
+  }
+  function unlockPage() {
+    locked = false;
+    content.style.display = 'block';
+    lockScreen.classList.remove('show');
+  }
+
+  // Camera start
+  async function startCamera() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      video.srcObject = stream;
+      video.play();
+      startChecking();
+    } catch(err) {
+      alert("Camera access is required. Closing page.");
+      window.close();
+      window.location.href = "about:blank";
+    }
+  }
+
+  // Brightness check
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  function checkBrightness() {
+    if (video.readyState < 2) return;
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const length = frame.data.length / 4;
+    let totalBrightness = 0;
+    for(let i=0; i<length; i++) {
+      const r = frame.data[i*4];
+      const g = frame.data[i*4 +1];
+      const b = frame.data[i*4 +2];
+      const brightness = 0.299*r + 0.587*g + 0.114*b;
+      totalBrightness += brightness;
+    }
+    const avgBrightness = totalBrightness / length;
+
+    if(avgBrightness < 30) {
+      if(!locked) lockPage();
+    } else {
+      if(locked) unlockPage();
+    }
+  }
+  function startChecking() {
+    setInterval(checkBrightness, 1000);
+  }
+
+  // Warning system (right-click, devtools, etc)
+  function warnUser(action) {
+    warningCount++;
+    alert(`⚠️ Warning ${warningCount}/10: ${action} is not allowed!`);
+
+    if (warningCount === 4) {
+      enterFullScreen();
+    }
+
+    if (warningCount === 9) {
+      alert("⚠️ FINAL WARNING: If you continue doing prohibited actions, this site will close.");
+    }
+
+    if (warningCount >= 10) {
+      alert("Too many violations. Closing this page.");
+      window.close();
+      window.location.href = "about:blank";
+    }
+  }
+  function enterFullScreen() {
+    const elem = document.documentElement;
+    if (elem.requestFullscreen) elem.requestFullscreen();
+  }
+
+  // Disable right-click, copy/paste/select, devtools shortcuts
+  document.addEventListener("contextmenu", e => { e.preventDefault(); warnUser("Right-click"); });
+  document.addEventListener("copy", e => { e.preventDefault(); warnUser("Copy"); });
+  document.addEventListener("paste", e => { e.preventDefault(); warnUser("Paste"); });
+  document.addEventListener("selectstart", e => e.preventDefault());
+  document.addEventListener("keydown", e => {
+    if (
+      e.keyCode === 123 || // F12
+      (e.ctrlKey && e.shiftKey && ["I", "J", "C"].includes(e.key)) ||
+      (e.ctrlKey && e.key === "U")
+    ) {
+      e.preventDefault();
+      warnUser("DevTools Shortcut");
+    }
+  });
+
+  // Detect user leaving or switching away from page
+  window.addEventListener('blur', () => {
+    if (!testActive) return; // only warn if test started
+    leftPageWarnings++;
+    if (leftPageWarnings <= 2) {
+      warningMsg.textContent = "⚠️ DO NOT LEAVE THIS PAGE OR YOU WILL AUTOMATICALLY GET 0!";
+      alert(`Warning ${leftPageWarnings}/3: DO NOT LEAVE THIS PAGE OR YOU WILL AUTOMATICALLY GET 0!`);
+    } else {
+      warningMsg.textContent = "⚠️ You left the page 3 times. Your test is over with 0 score.";
+      endTest(true);
+    }
+  });
+
+  // Start test after rules acceptance
+  startBtn.onclick = () => {
+    rulesDiv.style.display = 'none';
+    quizDiv.style.display = 'block';
+    testActive = true;
+    currentQuestionIndex = 0;
+    score = 0;
+    leftPageWarnings = 0;
+    warningMsg.textContent = '';
+    showQuestion(currentQuestionIndex);
+  };
+
+  // Show question
+  function showQuestion(index) {
+    const q = quizQuestions[index];
+    questionEl.textContent = q.question;
+    answersEl.innerHTML = '';
+    resultEl.textContent = '';
+    retryBtn.style.display = 'none';
+    warningMsg.textContent = '';
+
+    q.answers.forEach((answer, i) => {
+      const btn = document.createElement('button');
+      btn.className = 'answer-btn';
+      btn.textContent = answer;
+      btn.disabled = false;
+      btn.onclick = () => {
+        if(i === q.correctIndex){
+          score++;
+          resultEl.style.color = 'green';
+          resultEl.textContent = 'Correct!';
+        } else {
+          resultEl.style.color = 'red';
+          resultEl.textContent = `Incorrect! The correct answer is "${q.answers[q.correctIndex]}".`;
+        }
+
+        // Disable all buttons to prevent multiple clicks
+        Array.from(answersEl.children).forEach(b => b.disabled = true);
+
+        setTimeout(() => {
+          currentQuestionIndex++;
+          if(currentQuestionIndex < quizQuestions.length){
+            showQuestion(currentQuestionIndex);
+          } else {
+            showCompletion();
+          }
+        }, 1500);
+      };
+      answersEl.appendChild(btn);
+    });
+  }
+
+  // Show completion & score
+  function showCompletion() {
+    testActive = false;
+    questionEl.textContent = `Test Complete! Your score is ${score} out of ${quizQuestions.length}.`;
+    answersEl.innerHTML = '';
+    resultEl.textContent = '';
+    retryBtn.style.display = 'block';
+    warningMsg.textContent = '';
+  }
+
+  // End test with zero score forcibly (on 3rd warning)
+  function endTest(forced) {
+    testActive = false;
+    questionEl.textContent = forced
+      ? `Test ended due to leaving the page. Your score is 0 out of ${quizQuestions.length}.`
+      : `Test Complete! Your score is ${score} out of ${quizQuestions.length}.`;
+    answersEl.innerHTML = '';
+    resultEl.textContent = '';
+    retryBtn.style.display = 'block';
+    warningMsg.textContent = '';
+  }
+
+  // Retry button
+  retryBtn.onclick = () => {
+    score = 0;
+    currentQuestionIndex = 0;
+    leftPageWarnings = 0;
+    warningMsg.textContent = '';
+    retryBtn.style.display = 'none';
+    showQuestion(currentQuestionIndex);
+    testActive = true;
+  };
+
+  // Start camera on page load
+  window.onload = () => {
+    startCamera();
+  };
+</script>
+
+</body>
+</html>
